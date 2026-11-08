@@ -1,0 +1,5 @@
+/.env
+/runs/
+/upstream/
+/wandb/
+__pycache__/
