@@ -54,6 +54,6 @@ docker run --rm --pull=never --user "$(id -u):$(id -g)" --cpus 2 --memory 4g \
 
 ## ApexID after ImageNet
 
-Use unseen-animal retrieval as the primary experiment. Train on the supplied training split, use held-out training identities to tune the retrieval protocol, then form disjoint gallery and query sets from the unknown validation identities. Report Recall@1, Recall@5, and mAP, including per-identity results. Keep the extra unknown split separate because its identities overlap the unknown validation split and its image counts are highly imbalanced.
+Use unseen-animal retrieval as the primary experiment. Train on the supplied training split, use held-out training identities to tune the retrieval protocol, then form disjoint gallery and query sets from the full unknown validation split. Keep near-duplicate groups on one side of the gallery and query partition. Report Recall@1, Recall@5, and mAP, including per-identity results and the number of eligible queries. Report the smaller cross-date cohort separately. Keep the extra unknown split separate because its identities overlap the unknown validation split and its image counts are highly imbalanced.
 
 Use the known-animal validation split for a matched ResNet versus DiDiRN classification comparison. At ApexID’s class count, the upstream probability sampler’s dense class-by-class tensors need substantial memory. Verify an equivalent implementation on small label spaces before attempting full-scale probability sampling.
