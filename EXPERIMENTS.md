@@ -3,8 +3,8 @@
 | Date (UTC) | Run | Status | W&B ID |
 | --- | --- | --- | --- |
 | 2026-11-08 | ImageNet-1k ResNet-50 A1, 224 px, 0.95 crop, FP32, Spark CPU | Running on all 50,000 validation images | `hcis4nwo` |
-| 2026-11-08 | DiDiRN-50, 56 px, CP-8, synthetic fixture | Completed one optimizer update and CP validation. Wrote a checkpoint. | `1p2bsgqu` |
-| 2026-11-08 | DiDiRN-50, 56 px, 25% training data, Weak Aug, CP-8 | One-epoch GPU pilot staged. Requires ImageNet training files in ImageFolder format. | Pending |
+| 2026-11-08 | DiDiRN-50, 56 px, CP-8, synthetic fixture | Completed one optimizer update and CP validation with epsilon `1e-3`. Wrote a checkpoint. | `jg6sz0zp` |
+| 2026-11-08 | DiDiRN-50, 56 px, 25% training data, Weak Aug, CP-8 | One-epoch GPU pilot staged. ImageNet training shards are downloading. | Pending |
 
 ## Baseline provenance
 
@@ -14,6 +14,6 @@ The authors’ repository provides a checkpoint evaluation command. Its public r
 
 ## Training data
 
-ImageNet training data is staged from [ILSVRC’s Hugging Face release](https://huggingface.co/datasets/ILSVRC/imagenet-1k/tree/49e2ee26f3810fb5a7536bbf732a7b07389a47b5). Validation comes from the same revision. The training pilot requires conversion of the training shards to ImageFolder and verification of 1,281,167 training and 50,000 validation JPEGs.
+ImageNet training data is staged from [ILSVRC’s Hugging Face release](https://huggingface.co/datasets/ILSVRC/imagenet-1k/tree/49e2ee26f3810fb5a7536bbf732a7b07389a47b5). Validation comes from the same revision. The detached download verifies publisher checksums for all 294 shards. The training pilot requires conversion to ImageFolder and verification of 1,281,167 training and 50,000 validation images.
 
 The CPU smoke fixture used 16 synthetic images for training after the class-balanced subset and 16 for validation. It recorded finite training and validation losses and produced a usable output directory. The fixture exercises the training path and the eight-step sampler. Its accuracy is omitted because the input images were random.

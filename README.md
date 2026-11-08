@@ -34,6 +34,24 @@ scripts/run-didicm-pilot.sh ~/Projects/Datasets/Imagenet
 
 The pilot uses 56-pixel inputs, 25% class-balanced training data, the published code’s Weak Aug recipe, and eight CP sampling steps. It uses one GPU with gradient accumulation, a one-epoch schedule, and zero warm-up. Measure wall time and peak memory before selecting a full reproduction budget. The original recipe uses eight GPUs and 600 epochs. For the paper comparison, Table 1 reports 57.92% top-1 and 80.26% top-5 for DiDiRN-50, against 44.86% and 66.46% for the Weak Aug ResNet-50 in that cell. [Authors’ code and recipes](https://github.com/omer-belhasin/didicm/tree/7392557b5e40274a69e797cd910d42b50310f0ac)
 
+The pilot uses a diffusion epsilon of `1e-3`. The upstream `1e-5` setting can round the score-entropy ratio to zero at low noise for 1,000 classes, producing a non-finite loss. The pilot keeps recovery checkpoints so the trained weights remain available if validation fails.
+
+### Prepare the training split
+
+Download and verify the 294 training Parquet shards from the [pinned ILSVRC publisher release](https://huggingface.co/datasets/ILSVRC/imagenet-1k/tree/49e2ee26f3810fb5a7536bbf732a7b07389a47b5). Keep the validation ImageFolder and its numeric-label-to-synset TSV available. The converter restores original filenames, checks the labels and images, and publishes `train/` when all 1,281,167 images are present.
+
+```bash
+dataset="$HOME/Projects/Datasets/Imagenet"
+label_map="$(realpath "$dataset/val")/imagenet_label_to_wnid.tsv"
+docker run --rm --pull=never --user "$(id -u):$(id -g)" --cpus 2 --memory 4g \
+  --mount "type=bind,src=$dataset/train-parquet-49e2ee26,dst=/shards,readonly" \
+  --mount "type=bind,src=$dataset,dst=/output" \
+  --mount "type=bind,src=$label_map,dst=/labels.tsv,readonly" \
+  --mount "type=bind,src=$PWD/scripts/prepare-imagenet.py,dst=/prepare.py,readonly" \
+  --entrypoint python diffusion-reid:paper-reproduction /prepare.py \
+  /shards /output --label-map /labels.tsv --min-free-gib 180
+```
+
 ## ApexID after ImageNet
 
 Use unseen-animal retrieval as the primary experiment. Train on the supplied training split, use held-out training identities to tune the retrieval protocol, then form disjoint gallery and query sets from the unknown validation identities. Report Recall@1, Recall@5, and mAP, including per-identity results. Keep the extra unknown split separate because its identities overlap the unknown validation split and its image counts are highly imbalanced.

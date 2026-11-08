@@ -42,7 +42,8 @@ else
         --mount "type=bind,src=$validation,dst=/data/val,readonly"
     )
     args=(--device cuda --amp --batch-size 32 --grad-accum-steps 32
-        --validation-batch-size 16 --workers 4 --wandb-tags imagenet-1k single-epoch-pilot)
+        --validation-batch-size 16 --workers 4 --recovery-interval 50
+        --wandb-tags imagenet-1k single-epoch-pilot)
 fi
 
 exec docker run --rm --pull=never --name "diffusion-reid-$run_id" \
@@ -83,7 +84,7 @@ PY
         shift
         exec python -u /upstream/train.py --data-dir "$dataset" \
             --input-size 3 56 56 --crop-pct 0.875 --model didirn50 --num-classes 1000 \
-            --diffusion-enabled --diffusion-sampler cp --diffusion-steps 8 \
+            --diffusion-enabled --diffusion-sampler cp --diffusion-steps 8 --diffusion-eps 1e-3 \
             --data-ratio 0.25 --epochs 1 --warmup-epochs 0 --opt lamb \
             --weight-decay 0.01 --sched cosine --lr 0.004 --seed 42 --log-interval 10 \
             --output /results --experiment "$run_id" --checkpoint-hist 1 \
