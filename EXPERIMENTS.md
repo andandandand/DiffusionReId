@@ -24,6 +24,6 @@ The compact split was prepared on Spark from all 294 verified shards. It contain
 
 The one-epoch run used the verified compact split, FP16 mixed precision, and a diffusion epsilon of `1e-3`. It reported finite training loss of 7.00287 and evaluation loss of 6.90624. The top-1 and top-5 scores were near chance. The checkpoint and final metrics are in `runs/didicm-pilot-imgnet56-20261108T063643Z` on Spark.
 
-A CPU spot check used 16 evenly spaced validation images. The checkpoint's CP-8 sampler returned finite probabilities and two distinct top predictions in both FP32 and FP16 autocast. This check leaves CUDA-specific precision effects open.
+The checkpoint recorded 314 LAMB updates. The classifier and sampled backbone weights changed from initialization, and the AMP loss scale stayed at its initial value. A CPU spot check used 16 evenly spaced validation images. The checkpoint's CP-8 sampler returned finite probabilities and two distinct top predictions in both FP32 and FP16 autocast. This check leaves CUDA-specific precision effects open.
 
 The CPU smoke fixture used 16 synthetic images for training after the class-balanced subset and 16 for validation. It recorded finite training and validation losses and produced a usable output directory. The fixture exercises the training path and the eight-step sampler. Its accuracy is omitted because the input images were random.
