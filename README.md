@@ -52,6 +52,8 @@ docker run --rm --pull=never --user "$(id -u):$(id -g)" --cpus 2 --memory 4g \
   /shards /output --label-map /labels.tsv --min-free-gib 180
 ```
 
+When disk space limits full extraction, run the same converter with `--pilot-subset` and bind a separate directory such as `$dataset/pilot25` to `/output`. The converter uses the pinned timm ordering and upstream seed to write the exact 25% sample and its order to `train-subset-25.txt`. Link the existing validation split at `$dataset/pilot25/val`, then pass `$dataset/pilot25` to the pilot launcher. It checks the manifest and restores the original sample order before training.
+
 ## ApexID after ImageNet
 
 Use unseen-animal retrieval as the primary experiment. Train on the supplied training split, use held-out training identities to tune the retrieval protocol, then form disjoint gallery and query sets from the full unknown validation split. Keep near-duplicate groups on one side of the gallery and query partition. Report Recall@1, Recall@5, and mAP, including per-identity results and the number of eligible queries. Report the smaller cross-date cohort separately. Keep the extra unknown split separate because its identities overlap the unknown validation split and its image counts are highly imbalanced.

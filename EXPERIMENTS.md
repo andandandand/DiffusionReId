@@ -16,6 +16,6 @@ The authors’ repository provides a checkpoint evaluation command. Its public r
 
 ## Training data
 
-ImageNet training data is staged from [ILSVRC’s Hugging Face release](https://huggingface.co/datasets/ILSVRC/imagenet-1k/tree/49e2ee26f3810fb5a7536bbf732a7b07389a47b5). Validation comes from the same revision. The detached download verifies publisher checksums for all 294 shards. The training pilot requires conversion to ImageFolder and verification of 1,281,167 training and 50,000 validation images.
+ImageNet training data is staged from [ILSVRC’s Hugging Face release](https://huggingface.co/datasets/ILSVRC/imagenet-1k/tree/49e2ee26f3810fb5a7536bbf732a7b07389a47b5). Validation comes from the same revision. The detached download verifies publisher checksums for all 294 shards and the converter checks coverage of all 1,281,167 training records. If a second full copy would exceed the Spark disk allowance, the compact converter extracts the exact upstream 25% sample and records its order. The launcher checks the manifest and trains on those images with the full 50,000-image validation split.
 
 The CPU smoke fixture used 16 synthetic images for training after the class-balanced subset and 16 for validation. It recorded finite training and validation losses and produced a usable output directory. The fixture exercises the training path and the eight-step sampler. Its accuracy is omitted because the input images were random.

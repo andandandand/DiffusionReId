@@ -1,6 +1,7 @@
 """Convert local ILSVRC/imagenet-1k publisher shards to an ImageFolder split."""
 
 import argparse
+from bisect import bisect_left
 from collections import Counter
 import fcntl
 from io import BytesIO
@@ -25,6 +26,7 @@ PUBLISHER_NAMES = {
     "train": re.compile(rf"(?P<stem>(?P<prefix>{WNID})_[0-9]+)_(?P<wnid>{WNID})(?P<ext>(?i:\.jpeg))"),
     "validation": re.compile(rf"(?P<stem>ILSVRC2012_val_[0-9]{{8}})_(?P<wnid>{WNID})(?P<ext>(?i:\.jpeg))"),
 }
+PILOT_MANIFEST = "train-subset-25.txt"
 
 
 def read_label_map(path):
@@ -58,21 +60,91 @@ def check_shards(directory, split, count, expected_rows):
     return shards
 
 
-def image_from_row(row, labels, split):
-    image, label = row["image"], row["label"]
+def image_location(path, label, labels, split):
     if label is None or not 0 <= label < len(labels):
         raise ValueError(f"Invalid numeric label: {label}")
-    if image is None or not image["path"] or not image["bytes"]:
-        raise ValueError("Missing image path or bytes")
-    match = PUBLISHER_NAMES[split].fullmatch(image["path"])
+    if not path:
+        raise ValueError("Missing image path")
+    match = PUBLISHER_NAMES[split].fullmatch(path)
     if match is None:
-        raise ValueError(f"Invalid publisher image path: {image['path']!r}")
+        raise ValueError(f"Invalid publisher image path: {path!r}")
     wnid = labels[label]
     if match["wnid"] != wnid or match.groupdict().get("prefix", wnid) != wnid:
-        raise ValueError(f"Image path disagrees with label {label}: {image['path']}")
+        raise ValueError(f"Image path disagrees with label {label}: {path}")
     # The publisher appends the WNID to each filename. Restore the archive name
     # so timm can enumerate files in the same order when sampling per class.
-    return wnid, match["stem"] + match["ext"], image["bytes"]
+    return wnid, match["stem"] + match["ext"]
+
+
+def plan_pilot_subset(shards, labels):
+    import torch
+    from timm.utils.misc import natural_key
+
+    classes = [[] for _ in labels]
+    seen = set()
+    for shard_index, path in enumerate(shards):
+        row_index = 0
+        with pq.ParquetFile(path) as shard:
+            for batch in shard.iter_batches(batch_size=4096, columns=["image.path", "label"]):
+                for row in batch.to_pylist():
+                    image, label = row["image"], row["label"]
+                    _, name = image_location(image["path"] if image else None, label, labels, "train")
+                    if name in seen:
+                        raise ValueError(f"Duplicate image path: {name}")
+                    seen.add(name)
+                    classes[label].append((name, shard_index, row_index))
+                    row_index += 1
+
+    selected_rows = [[] for _ in shards]
+    manifest = []
+    for wnid, samples in zip(labels, classes):
+        samples.sort(key=lambda sample: natural_key(sample[0]))
+        keep = len(samples) // 4
+        if not keep:
+            raise ValueError(f"Cannot keep 25% of class {wnid} with only {len(samples)} images")
+        # DiDiCM resets its generator to seed 42 independently for every class.
+        order = torch.randperm(len(samples), generator=torch.Generator().manual_seed(42))[:keep]
+        for index in order.tolist():
+            name, shard_index, row_index = samples[index]
+            selected_rows[shard_index].append(row_index)
+            manifest.append(f"{wnid}/{name}")
+    for indices in selected_rows:
+        indices.sort()
+    return selected_rows, manifest
+
+
+def selected_batches(shard, indices):
+    if not indices:
+        return
+    offset = 0
+    first = 0
+    for batch in shard.iter_batches(batch_size=64):
+        end = offset + batch.num_rows
+        last = bisect_left(indices, end, lo=first)
+        if last > first:
+            yield batch.take([index - offset for index in indices[first:last]])
+        if last == len(indices):
+            return
+        first = last
+        offset = end
+    raise ValueError("Shard ended before the selected rows were available")
+
+
+def publish_manifest(output_root, paths, complete):
+    manifest = output_root / PILOT_MANIFEST
+    contents = "\n".join(paths) + "\n"
+    if manifest.is_symlink():
+        raise ValueError(f"Refusing a symlink for {manifest}")
+    if manifest.exists():
+        if not manifest.is_file() or manifest.read_bytes() != contents.encode("utf-8"):
+            raise ValueError(f"Existing pilot manifest differs: {manifest}")
+    elif complete:
+        raise ValueError(f"Published pilot split is missing {manifest}")
+    else:
+        temporary = output_root / f".{PILOT_MANIFEST}.tmp"
+        temporary.unlink(missing_ok=True)
+        temporary.write_text(contents, encoding="utf-8", newline="\n")
+        temporary.replace(manifest)
 
 
 def verify_image(data, name):
@@ -88,13 +160,21 @@ def verify_image(data, name):
         raise ValueError(f"Invalid image {name}: {exc}") from exc
 
 
-def prepare(shard_dir, output_root, label_map, split, min_free_gib=0):
+def prepare(shard_dir, output_root, label_map, split, min_free_gib=0, pilot_subset=False):
     if min_free_gib < 0:
         raise ValueError("--min-free-gib cannot be negative")
+    if pilot_subset and split != "train":
+        raise ValueError("--pilot-subset requires --split train")
     min_free_bytes = min_free_gib * 1024**3
     folder, shard_count, expected_rows = SPLITS[split]
     labels = read_label_map(label_map)
     shards = check_shards(shard_dir, split, shard_count, expected_rows)
+    pilot_paths = None
+    selected_rows = None
+    if pilot_subset:
+        print("Planning the upstream 25% training subset from publisher metadata", flush=True)
+        selected_rows, pilot_paths = plan_pilot_subset(shards, labels)
+        expected_rows = len(pilot_paths)
     output_root.mkdir(parents=True, exist_ok=True)
     final = output_root / folder
     staging = output_root / f".{folder}.partial"
@@ -117,15 +197,21 @@ def prepare(shard_dir, output_root, label_map, split, min_free_gib=0):
 
         counts = Counter()
         seen = set()
-        for path in shards:
+        for shard_index, path in enumerate(shards):
             if min_free_bytes and not complete:
                 free = shutil.disk_usage(output_root).free
                 if free < min_free_bytes + path.stat().st_size:
                     raise ValueError(f"Insufficient free disk space for {path.name} with a {min_free_gib} GiB reserve")
             with pq.ParquetFile(path) as shard:
-                for batch in shard.iter_batches(batch_size=64):
+                batches = (shard.iter_batches(batch_size=64) if selected_rows is None
+                           else selected_batches(shard, selected_rows[shard_index]))
+                for batch in batches:
                     for row in batch.to_pylist():
-                        wnid, name, data = image_from_row(row, labels, split)
+                        image = row["image"]
+                        wnid, name = image_location(image["path"] if image else None, row["label"], labels, split)
+                        data = image["bytes"]
+                        if not data:
+                            raise ValueError(f"Missing image bytes for {name}")
                         if name in seen:
                             raise ValueError(f"Duplicate image path: {name}")
                         seen.add(name)
@@ -150,6 +236,10 @@ def prepare(shard_dir, output_root, label_map, split, min_free_gib=0):
             sum(1 for _ in (target / wnid).iterdir()) != counts[wnid] for wnid in labels
         ):
             raise ValueError(f"Unexpected directories or files in {target}")
+        if pilot_paths is not None:
+            if seen != {path.split("/", 1)[1] for path in pilot_paths}:
+                raise ValueError("Extracted images disagree with the planned pilot subset")
+            publish_manifest(output_root, pilot_paths, complete)
         if not complete:
             staging.rename(final)
         print(f"Ready: {final} ({len(seen):,} images, {len(labels):,} classes)", flush=True)
@@ -162,9 +252,10 @@ def main():
     parser.add_argument("--label-map", type=Path, required=True, help="Numeric label to WordNet synset TSV")
     parser.add_argument("--split", choices=SPLITS, default="train")
     parser.add_argument("--min-free-gib", type=int, default=0, help="Free disk reserve to check before each shard")
+    parser.add_argument("--pilot-subset", action="store_true", help="Stage the exact upstream 25%% training subset")
     args = parser.parse_args()
     try:
-        prepare(args.shard_dir, args.output_root, args.label_map, args.split, args.min_free_gib)
+        prepare(args.shard_dir, args.output_root, args.label_map, args.split, args.min_free_gib, args.pilot_subset)
     except (OSError, ValueError) as exc:
         parser.exit(1, f"{parser.prog}: {exc}\n")
 

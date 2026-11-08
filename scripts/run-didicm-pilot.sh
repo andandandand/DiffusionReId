@@ -29,18 +29,30 @@ else
             exit 2
         fi
     done
-    train_count="$(find "$train" -type f -iname '*.jpeg' | wc -l)"
     val_count="$(find "$validation" -type f -iname '*.jpeg' | wc -l)"
-    if [[ "$train_count" -ne 1281167 || "$val_count" -ne 50000 ]]; then
-        printf 'Expected 1,281,167 train and 50,000 validation JPEGs, found %s and %s.\n' \
-            "$train_count" "$val_count" >&2
-        exit 2
-    fi
     resources=(--gpus all)
     mounts=(
         --mount "type=bind,src=$train,dst=/data/train,readonly"
         --mount "type=bind,src=$validation,dst=/data/val,readonly"
     )
+    manifest="$mode/train-subset-25.txt"
+    if [[ -e "$manifest" || -L "$manifest" ]]; then
+        if [[ ! -f "$manifest" || ! -r "$manifest" || "$val_count" -ne 50000 ]]; then
+            printf 'Compact mode requires a readable train-subset-25.txt and 50,000 validation JPEGs.\n' >&2
+            exit 2
+        fi
+        mounts+=(
+            --mount "type=bind,src=$(realpath "$manifest"),dst=/train-subset-25.txt,readonly"
+            --mount "type=bind,src=$PWD/scripts/train-imagenet-subset.py,dst=/train-imagenet-subset.py,readonly"
+        )
+    else
+        train_count="$(find "$train" -type f -iname '*.jpeg' | wc -l)"
+        if [[ "$train_count" -ne 1281167 || "$val_count" -ne 50000 ]]; then
+            printf 'Expected 1,281,167 train and 50,000 validation JPEGs, found %s and %s.\n' \
+                "$train_count" "$val_count" >&2
+            exit 2
+        fi
+    fi
     args=(--device cuda --amp --batch-size 32 --grad-accum-steps 32
         --validation-batch-size 16 --workers 4 --recovery-interval 50
         --wandb-tags imagenet-1k single-epoch-pilot)
@@ -82,7 +94,11 @@ PY
         shift
         run_id="$1"
         shift
-        exec python -u /upstream/train.py --data-dir "$dataset" \
+        trainer=(/upstream/train.py --data-dir "$dataset")
+        if [[ -f /train-subset-25.txt ]]; then
+            trainer=(/train-imagenet-subset.py /train-subset-25.txt "$dataset")
+        fi
+        exec python -u "${trainer[@]}" \
             --input-size 3 56 56 --crop-pct 0.875 --model didirn50 --num-classes 1000 \
             --diffusion-enabled --diffusion-sampler cp --diffusion-steps 8 --diffusion-eps 1e-3 \
             --data-ratio 0.25 --epochs 1 --warmup-epochs 0 --opt lamb \
