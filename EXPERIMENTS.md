@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | 2026-11-08 | ImageNet-1k ResNet-50 A1, 224 px, 0.95 crop, FP32, Spark CPU | Completed on 50,000 validation images. 80.382% top-1, 94.582% top-5, 7,374.85 s. | `hcis4nwo` |
 | 2026-11-08 | DiDiRN-50, 56 px, CP-8, synthetic fixture | Completed one optimizer update and CP validation with epsilon `1e-3`. Wrote a checkpoint. | `jg6sz0zp` |
-| 2026-11-08 | DiDiRN-50, 56 px, 25% training data, Weak Aug, CP-8 | All 294 shards verified. The exact 320,255-image subset is ready. Waiting for the GPU. | Pending |
+| 2026-11-08 | DiDiRN-50, 56 px, 25% training data, Weak Aug, CP-8 | One-epoch GPU pilot started at 06:36 UTC on the verified 320,255-image subset. | `pno0h2vl` |
 
 ## Baseline provenance
 
